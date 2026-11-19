@@ -1,154 +1,3 @@
-import hashlib
-from datetime import datetime
-from io import BytesIO
-
-import streamlit as st
-from docx import Document
-from pypdf import PdfReader
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.units import inch
-from pptx import Presentation
-from pptx.util import Pt
-
-st.set_page_config(
-    page_title="GraphPilot AI | Document Intelligence",
-    page_icon="🧭",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-:root{--bg:#0B1020;--panel:#151D35;--panel2:#192440;--line:rgba(154,170,210,.16);--muted:#AAB7D3;--text:#F4F6FF;--purple:#795CFF;--blue:#168BFF}
-html,body,[data-testid="stAppViewContainer"]{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif}
-[data-testid="stHeader"]{background:rgba(11,16,32,.88)}
-[data-testid="stSidebar"]{background:#0E162B;border-right:1px solid var(--line)}
-[data-testid="stSidebar"] *{color:var(--text)}
-.block-container{padding-top:1.6rem;padding-bottom:3rem;max-width:1500px}
-h1,h2,h3{font-family:'Space Grotesk',sans-serif!important;color:var(--text)!important;letter-spacing:-.035em}
-p,label,.stMarkdown{color:var(--text)}
-.eyebrow{color:#B6A9FF;font-size:11px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase}
-.brand{display:flex;align-items:center;gap:11px;padding:8px 4px 24px}
-.brand-mark{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,var(--purple),var(--blue));font-size:20px}
-.brand-name{font:700 19px 'Space Grotesk'}
-.brand-sub{color:var(--muted);font-size:10px;letter-spacing:1.7px;text-transform:uppercase}
-.hero{padding:25px 28px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(ellipse at 88% 0%,#5b3df533 0%,transparent 42%),linear-gradient(120deg,#172342,#111a31);margin-bottom:20px}
-.hero h1{font-size:32px;margin:7px 0}.hero p{color:#C1CBE0;margin:0;max-width:720px}
-.pill{display:inline-block;padding:5px 10px;border-radius:20px;background:#5b3df522;border:1px solid #806cff66;color:#D4CDFF;font-size:11px;font-weight:700}
-.metric{background:linear-gradient(145deg,#192541,#131c32);border:1px solid var(--line);border-radius:16px;padding:16px;min-height:108px}
-.metric-label{color:var(--muted);font-size:12px;font-weight:600}.metric-value{font:700 27px 'Space Grotesk';margin:7px 0 2px;color:var(--text)}.metric-note{color:#AAB7D3;font-size:11px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:19px}
-.panel-title{font:600 16px 'Space Grotesk';margin-bottom:4px}.panel-sub{color:var(--muted);font-size:12px;margin-bottom:14px}
-.stButton>button,.stDownloadButton>button{border:0;border-radius:10px;color:white;font-weight:700;background:linear-gradient(100deg,var(--purple),#397DFF);padding:.58rem 1rem}
-.stButton>button:hover,.stDownloadButton>button:hover{border:0;filter:brightness(1.12);color:white}
-.stTextInput input,.stTextArea textarea,.stSelectbox div[data-baseweb="select"]>div{background:#101A30!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:10px}
-[data-testid="stFileUploader"]{background:#101A30;border:1px dashed #7182AB;border-radius:14px;padding:12px}
-[data-testid="stFileUploader"] *{color:var(--text)!important}
-[data-testid="stAlert"]{border-radius:12px}
-hr{border-color:var(--line)}footer{visibility:hidden}
-</style>
-""", unsafe_allow_html=True)
-
-if "documents" not in st.session_state:
-    st.session_state.documents = {}
-
-def extract_text(name: str, raw: bytes):
-    suffix = name.lower().rsplit(".", 1)[-1]
-    if suffix == "txt":
-        try:
-            return raw.decode("utf-8-sig"), None
-        except UnicodeDecodeError:
-            return raw.decode("latin-1"), None
-    if suffix == "pdf":
-        reader = PdfReader(BytesIO(raw))
-        pages = []
-        for index, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            if text.strip():
-                pages.append(f"[Page {index}]\n{text.strip()}")
-        return "\n\n".join(pages), None
-    if suffix == "docx":
-        doc = Document(BytesIO(raw))
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        tables = []
-        for table in doc.tables:
-            for row in table.rows:
-                cells = [cell.text.strip() for cell in row.cells]
-                if any(cells):
-                    tables.append(" | ".join(cells))
-        combined = "\n".join(paragraphs)
-        if tables:
-            combined += "\n\n[Tables]\n" + "\n".join(tables)
-        return combined, None
-    raise ValueError("Unsupported file type.")
-
-
-def secret_is_configured(name):
-    """Check secret presence without displaying the secret value."""
-    try:
-        return bool(str(st.secrets.get(name, "")).strip())
-    except Exception:
-        return False
-
-
-def make_pdf(title, content):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.65*inch,
-                            leftMargin=0.65*inch, topMargin=0.65*inch,
-                            bottomMargin=0.65*inch)
-    styles = getSampleStyleSheet()
-    story = [Paragraph(title.replace("&", "&amp;"), styles["Title"]), Spacer(1, 14)]
-    for line in content.splitlines():
-        safe = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        story.extend([Paragraph(safe if safe.strip() else " ", styles["BodyText"]), Spacer(1, 5)])
-    doc.build(story)
-    return buffer.getvalue()
-
-def make_pptx(title, content):
-    prs = Presentation()
-    cover = prs.slides.add_slide(prs.slide_layouts[0])
-    cover.shapes.title.text = title
-    cover.placeholders[1].text = "Extracted text · GraphPilot AI"
-    lines = content.splitlines()
-    chunks = [lines[i:i+12] for i in range(0, len(lines), 12)] or [[""]]
-    for index, chunk in enumerate(chunks, 1):
-        slide = prs.slides.add_slide(prs.slide_layouts[1])
-        slide.shapes.title.text = f"Extracted Content — {index}"
-        frame = slide.placeholders[1].text_frame
-        frame.clear()
-        for j, line in enumerate(chunk):
-            para = frame.paragraphs[0] if j == 0 else frame.add_paragraph()
-            para.text = line[:450] if line else " "
-            para.font.size = Pt(15)
-    output = BytesIO()
-    prs.save(output)
-    return output.getvalue()
-
-def format_bytes(size):
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.2f} MB"
-
-with st.sidebar:
-    st.markdown("""
-    <div class="brand"><div class="brand-mark">✦</div>
-    <div><div class="brand-name">GraphPilot AI</div><div class="brand-sub">Document intelligence</div></div></div>
-    <div class="eyebrow">Workspace</div>
-    """, unsafe_allow_html=True)
-    page = st.radio("Navigation", ["Overview","Knowledge Base","AI Assistant","Reports","Analytics","Settings"], label_visibility="collapsed")
-    st.markdown("---")
-    st.markdown(f"""<div class="panel" style="padding:14px"><b style="font-size:13px">Workspace status</b>
-    <div style="color:#AAB7D3;font-size:11px;margin-top:5px">Phase 2 · Document ingestion</div>
-    <div style="margin-top:12px"><span class="pill">● UI operational</span></div></div>""", unsafe_allow_html=True)
-    st.markdown("<br><div style='color:#8292B4;font-size:10px'>GRAPH PILOT AI · 2026</div>", unsafe_allow_html=True)
-
-st.markdown(f"""<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
-<div><div class="eyebrow">Enterprise workspace</div><div style="font-size:13px;color:#AAB7D3;margin-top:4px">{page} / GraphPilot AI</div></div>
 <div class="pill">PHASE 2 · DOCUMENT INGESTION</div></div>""", unsafe_allow_html=True)
 
 docs = st.session_state.documents
@@ -236,9 +85,15 @@ elif page == "AI Assistant":
     st.title("AI Assistant")
     st.caption("Your document-aware assistant will be powered by retrieval in a later phase.")
     st.info("Documents can now be uploaded and text-extracted. Semantic search, Gemini/Groq responses, and source citations are not connected yet.")
-    q=st.text_area("Your question",placeholder="What are the main points across my documents?")
+    response_language = st.selectbox(
+        "Preferred response language",
+        ["Match the language of my question", "English", "Urdu", "Roman Urdu"],
+        help="The upcoming AI integration will use this preference for its replies."
+    )
+    q=st.text_area("Your question",placeholder="Ask in English, Urdu, or Roman Urdu...")
+    st.caption("Voice input and spoken answers will be added with the AI assistant integration.")
     if st.button("Ask GraphPilot"):
-        st.warning("The AI engine is not connected in Phase 2. Your question was not sent to an AI provider.")
+        st.warning("The AI engine is not connected in this phase. Your question was not sent to an AI provider. The next phase will enable document-grounded answers in English, Urdu, and Roman Urdu.")
 
 elif page == "Reports":
     st.title("Reports")
