@@ -1,59 +1,35 @@
-# GraphPilot AI — Phase 1
+# GraphPilot AI — Phase 2
 
-A premium dark-themed foundation for an enterprise document intelligence workspace.
+A premium dark-themed document intelligence workspace with multi-file upload, text extraction, preview, and export.
 
-## Phase 1 scope
-
-This phase provides the Streamlit application shell and polished workspace UI:
-
-- Overview dashboard and phased roadmap
-- Knowledge Base page with a non-persistent file-selection preview
-- AI Assistant page placeholder
-- Reports page placeholder
-- Analytics page placeholder
-- Workspace Settings page placeholder
-- Responsive dark visual theme
+## Features
+- Upload multiple PDF, DOCX, and TXT files
+- Extract selectable PDF text, Word paragraphs/tables, and text files
+- Preview extracted text in the application
+- Download extracted text as TXT, PDF, or PowerPoint (PPTX)
+- View file size, page count, upload time, and content hash
+- Detect duplicate uploads within the active session
+- Remove documents from the active session
 
 ## Important limitations
-
-Phase 1 is a UI and deployment foundation only. It does **not** yet implement document parsing, persistent uploads, embeddings, vector search, RAG, AI provider calls, authentication, organization isolation, Google Drive integration, or report generation. Do not upload confidential business documents to this preview.
-
-## Technology
-
-- Python
-- Streamlit
-- Custom CSS
+Uploaded files and extracted text are held in Streamlit session memory only. They are not persisted to a database or durable object storage and may be lost when the session expires or app restarts. Scanned/image-only PDFs may not yield text because OCR is not included. Authentication, organization isolation, semantic chunking, embeddings, RAG, AI provider calls, and AI report generation are not implemented yet. Do not upload confidential documents.
 
 ## Run locally
-
 ```bash
 python -m venv .venv
 ```
-
 Windows:
-
 ```bash
-.venv\Scripts\activate
+.venv\\Scripts\\activate
 ```
-
-Install dependencies and start the app:
-
 ```bash
 pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
 ## Deploy on Streamlit Community Cloud
-
-1. Push the contents of this project folder to a GitHub repository.
-2. Open https://share.streamlit.io/ and sign in with GitHub.
-3. Select **Create app**.
-4. Choose the repository and branch.
-5. Set the main file path to `streamlit_app.py`.
-6. Deploy.
-
-Streamlit Community Cloud installs dependencies from the root `requirements.txt`.
-
-## Project phases
-
-Upcoming phases will add secure document ingestion and storage, topic-aware chunking, embeddings and retrieval, Gemini/Groq integrations, grounded Q&A with citations, reports, and integrations. Security and tenant boundaries must be implemented and tested before using real confidential documents.
+1. Push the project files to the root of your GitHub repository.
+2. In Streamlit Community Cloud, open the app settings.
+3. Select the connected repository and branch.
+4. Set the main file path to `streamlit_app.py`.
+5. Save and redeploy.
