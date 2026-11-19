@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: graphpilot-ai
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
