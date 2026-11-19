@@ -46,14 +46,13 @@ p,label,.stMarkdown{color:var(--text)}
 .stButton>button,.stDownloadButton>button{border:0;border-radius:10px;color:white;font-weight:700;background:linear-gradient(100deg,var(--purple),#397DFF);padding:.58rem 1rem}
 .stButton>button:hover,.stDownloadButton>button:hover{border:0;filter:brightness(1.12);color:white}
 .stTextInput input,.stTextArea textarea,.stSelectbox div[data-baseweb="select"]>div{background:#101A30!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:10px}
-[data-testid="stFileUploader"]{background:#101A30;border:1px dashed #7182AB;border-radius:14px;padding:12px}
+[data-testid="stFileUploader"]{background:#101A30!important;border:1px dashed #7182AB!important;border-radius:14px!important;padding:12px!important}
 [data-testid="stFileUploader"] *{color:var(--text)!important}
+[data-testid="stFileUploader"] section{background:#101A30!important}
+[data-testid="stFileUploader"] button{background:#243354!important;color:#F4F6FF!important;border:1px solid #53688F!important}
 [data-testid="stAlert"]{border-radius:12px!important;background:#151D35!important;border:1px solid rgba(154,170,210,.24)!important;color:#F4F6FF!important}
 [data-testid="stAlert"] *{color:#F4F6FF!important}
 [data-testid="stAlert"] a{color:#8DBBFF!important}
-[data-testid="stFileUploader"]{background:#101A30!important;border:1px dashed #7182AB!important;border-radius:14px!important;padding:12px!important}
-[data-testid="stFileUploader"] section{background:#101A30!important}
-[data-testid="stFileUploader"] button{background:#243354!important;color:#F4F6FF!important;border:1px solid #53688F!important}
 [data-testid="stExpander"] details{background:#151D35!important;border:1px solid var(--line)!important;border-radius:12px!important}
 [data-testid="stExpander"] summary,[data-testid="stExpander"] summary *{color:#F4F6FF!important}
 .stTextArea textarea{background:#101A30!important;color:#F4F6FF!important;caret-color:#F4F6FF!important}
@@ -63,6 +62,8 @@ hr{border-color:var(--line)}footer{visibility:hidden}
 
 if "documents" not in st.session_state:
     st.session_state.documents = {}
+if "assistant_history" not in st.session_state:
+    st.session_state.assistant_history = []
 
 def extract_text(name: str, raw: bytes):
     suffix = name.lower().rsplit(".", 1)[-1]
@@ -75,9 +76,9 @@ def extract_text(name: str, raw: bytes):
         reader = PdfReader(BytesIO(raw))
         pages = []
         for index, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            if text.strip():
-                pages.append(f"[Page {index}]\n{text.strip()}")
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                pages.append(f"[Page {index}]\n{page_text.strip()}")
         return "\n\n".join(pages), None
     if suffix == "docx":
         doc = Document(BytesIO(raw))
