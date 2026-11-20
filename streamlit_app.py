@@ -60,13 +60,48 @@ p,label,.stMarkdown{color:var(--text)}
 .panel-title{font:600 16px 'Space Grotesk';margin-bottom:4px}.panel-sub{color:var(--muted);font-size:12px;margin-bottom:14px}
 .stButton>button,.stDownloadButton>button{border:0;border-radius:10px;color:white;font-weight:700;background:linear-gradient(100deg,var(--purple),#397DFF);padding:.58rem 1rem}
 .stButton>button:hover,.stDownloadButton>button:hover{border:0;filter:brightness(1.12);color:white}
-.stTextInput input,.stTextArea textarea,.stSelectbox div[data-baseweb="select"]>div{background:#101A30!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:10px}
-[data-testid="stFileUploader"]{background:#101A30;border:1px dashed #7182AB;border-radius:14px;padding:12px}
-[data-testid="stFileUploader"] *{color:var(--text)!important}
-[data-testid="stAlert"]{border-radius:12px}
-.answer-card{background:#FFFFFF;color:#111827;border-radius:14px;padding:20px 22px;border:1px solid #D7DCE5;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
-.answer-card *{color:#111827!important}
-.answer-label{color:#667085!important;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+.stTextInput input,.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"]>div,
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="menu"]{background:#101A30!important;color:#F4F6FF!important;border-color:var(--line)!important;border-radius:10px}
+.stTextInput input::placeholder,.stTextArea textarea::placeholder{color:#AAB7D3!important;opacity:1!important}
+
+/* Keep every Streamlit notice and upload surface in the dark GraphPilot theme. */
+[data-testid="stFileUploader"],
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploaderDropzone"]>div,
+[data-testid="stFileUploaderDropzone"] section{
+  background:#101A30!important;color:#F4F6FF!important;
+  border-color:#53688F!important;border-radius:12px!important;
+}
+[data-testid="stFileUploader"] *,
+[data-testid="stFileUploaderDropzone"] *,
+[data-testid="stFileUploaderDropzone"] section *{
+  color:#F4F6FF!important;
+}
+[data-testid="stFileUploader"] button,
+[data-testid="stFileUploaderDropzone"] button{
+  background:#243354!important;color:#FFFFFF!important;
+  border:1px solid #53688F!important;border-radius:9px!important;
+}
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploaderDropzone"] small{color:#C1CBE0!important}
+
+/* st.info / success / warning / error: dark background, readable white text. */
+[data-testid="stAlert"],
+[data-testid="stAlert"]>div,
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"]{
+  background:#151D35!important;color:#F4F6FF!important;
+  border-color:#53688F!important;border-radius:12px!important;
+}
+[data-testid="stAlert"] *,
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] span{color:#F4F6FF!important}
+
+/* AI answers also use the dark card so there are no bright white panels. */
+.answer-card{background:#151D35;color:#F4F6FF;border-radius:14px;padding:20px 22px;border:1px solid rgba(154,170,210,.24);line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.answer-card *{color:#F4F6FF!important}
+.answer-label{color:#B6C2DD!important;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
 .source-chip{display:inline-block;background:#202D4A;border:1px solid #3A4B70;color:#DCE5FF;border-radius:20px;padding:4px 9px;margin:3px;font-size:11px}
 hr{border-color:var(--line)}footer{visibility:hidden}
 </style>
