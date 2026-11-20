@@ -157,7 +157,15 @@ h1, h2, h3 {
 }
 [data-testid="stAlert"] {
     border-radius: 12px;
+
+[data-testid="stAlert"] {
+    color: #111827 !important;
 }
+[data-testid="stAlert"] *,
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"] p {
+    color: #111827 !important;
+}
+
 [data-testid="stExpander"] {
     background: #151D35;
     border: 1px solid rgba(154,170,210,.20);
@@ -165,20 +173,6 @@ h1, h2, h3 {
 }
 footer {
     visibility: hidden;
-}
-
-
-[data-testid="stAlert"] {
-    background: #151D35 !important;
-    border: 1px solid rgba(154, 170, 210, 0.25) !important;
-    border-radius: 12px !important;
-    color: #F4F6FF !important;
-}
-[data-testid="stAlert"] * {
-    color: #F4F6FF !important;
-}
-[data-testid="stAlert"] svg {
-    fill: currentColor;
 }
 </style>
 """, unsafe_allow_html=True)
