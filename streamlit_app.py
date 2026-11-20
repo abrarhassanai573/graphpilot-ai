@@ -24,8 +24,8 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, classification_report
 
 st.set_page_config(page_title="GraphPilot AI | Agentic Business Intelligence", page_icon="🧭", layout="wide")
-GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
-GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
+GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 MAX_FILE_MB = 25
 MAX_URL_CHARS = 120000
 NAV = ["Overview", "Knowledge Base", "AI Assistant", "Agentic Lab", "Analytics", "Reports", "Settings"]
@@ -73,44 +73,133 @@ def get_secret(name, default=""):
     except Exception:
         return os.getenv(name, default)
 
+def discover_gemini_models(key: str):
+    """Return models currently exposed to this API key that support generateContent."""
+    try:
+        response = requests.get(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            params={"key": key, "pageSize": 1000}, timeout=18
+        )
+        if response.ok:
+            items = response.json().get("models", [])
+            names = []
+            for item in items:
+                methods = item.get("supportedGenerationMethods", [])
+                name = item.get("name", "").replace("models/", "")
+                if name and "generateContent" in methods:
+                    names.append(name)
+            return names
+    except Exception:
+        pass
+    return []
+
+
+def choose_gemini_model(key: str):
+    available = discover_gemini_models(key)
+    configured = get_secret("GEMINI_MODEL").strip()
+    if available:
+        if configured and configured in available:
+            return configured
+        if GEMINI_DEFAULT_MODEL in available:
+            return GEMINI_DEFAULT_MODEL
+        flash = [m for m in available if "flash" in m.lower() and "preview" not in m.lower()]
+        if flash:
+            return sorted(flash, key=lambda m: ("latest" not in m.lower(), m))[0]
+        return available[0]
+    # If model discovery is temporarily unavailable, use the model recommended
+    # by the provider error shown in the user's deployment screenshot.
+    return GEMINI_DEFAULT_MODEL
+
+
 def gemini_call(prompt, system="You are GraphPilot AI, an accurate professional business intelligence assistant.", temperature=.2):
     key = get_secret("GEMINI_API_KEY")
-    if not key: raise RuntimeError("GEMINI_API_KEY is not configured in Streamlit Secrets.")
-    model = get_secret("GEMINI_MODEL", GEMINI_DEFAULT_MODEL)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    if not key:
+        raise RuntimeError("Gemini API key is not configured in Streamlit Secrets.")
+    model = choose_gemini_model(key)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {"systemInstruction":{"parts":[{"text":system}]},
                "contents":[{"role":"user","parts":[{"text":prompt}]}],
                "generationConfig":{"temperature":temperature,"maxOutputTokens":7000}}
-    r = requests.post(url, json=payload, timeout=90)
-    if r.status_code >= 400: raise RuntimeError(f"Gemini API {r.status_code}: {r.text[:600]}")
+    r = requests.post(url, params={"key": key}, json=payload, timeout=90)
+    if r.status_code >= 400:
+        detail = r.text[:500]
+        if r.status_code == 404:
+            raise RuntimeError(f"Gemini model '{model}' is not available for this key. Check model access in Google AI Studio. {detail}")
+        raise RuntimeError(f"Gemini API error {r.status_code}: {detail}")
     data = r.json()
     answer = "".join(p.get("text","") for p in data.get("candidates",[{}])[0].get("content",{}).get("parts",[]))
-    if not answer.strip(): raise RuntimeError("Gemini returned an empty response.")
+    if not answer.strip(): raise RuntimeError("Gemini returned an empty response. Check model access or safety feedback.")
     return answer.strip(), model
+
+
+def discover_groq_models(key: str):
+    try:
+        response = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {key}"}, timeout=18
+        )
+        if response.ok:
+            models = response.json().get("data", [])
+            return [m for m in models if m.get("id") and m.get("active", True)]
+    except Exception:
+        pass
+    return []
+
+
+def choose_groq_model(key: str):
+    models = discover_groq_models(key)
+    configured = get_secret("GROQ_MODEL").strip()
+    available_ids = [m.get("id", "") for m in models]
+    if available_ids:
+        # Keep a configured model only when Groq confirms it is available to this key.
+        if configured and configured in available_ids:
+            return configured
+        llama_ids = [mid for mid in available_ids if "llama" in mid.lower()
+                     and not any(x in mid.lower() for x in ("guard", "prompt", "whisper", "safeguard"))]
+        if llama_ids:
+            return sorted(llama_ids, key=lambda mid: ("70b" not in mid.lower(), "instant" not in mid.lower(), mid))[0]
+        # Keep the fallback operational even when this Groq account has no Llama model.
+        for preferred in (GROQ_DEFAULT_MODEL, "openai/gpt-oss-20b"):
+            if preferred in available_ids:
+                return preferred
+        return available_ids[0]
+    # Safe fallback if Groq's model-list endpoint is temporarily unavailable.
+    return GROQ_DEFAULT_MODEL
+
 
 def groq_call(prompt, system="You are GraphPilot AI, an accurate professional business intelligence assistant.", temperature=.2):
     key = get_secret("GROQ_API_KEY")
-    if not key: raise RuntimeError("GROQ_API_KEY is not configured in Streamlit Secrets.")
-    model = get_secret("GROQ_MODEL", GROQ_DEFAULT_MODEL)
+    if not key: raise RuntimeError("Groq API key is not configured in Streamlit Secrets.")
+    model = choose_groq_model(key)
     url = "https://api.groq.com/openai/v1/chat/completions"
     payload = {"model":model,"messages":[{"role":"system","content":system},{"role":"user","content":prompt}],
-               "temperature":temperature,"max_tokens":7000}
+               "temperature":temperature,"max_completion_tokens":7000}
     r = requests.post(url, headers={"Authorization":f"Bearer {key}"}, json=payload, timeout=90)
-    if r.status_code >= 400: raise RuntimeError(f"Groq API {r.status_code}: {r.text[:600]}")
-    answer = r.json()["choices"][0]["message"]["content"]
+    if r.status_code >= 400:
+        detail = r.text[:500]
+        if r.status_code == 404:
+            raise RuntimeError(f"Groq model '{model}' is not available for this API key. Model list lookup failed or access changed. {detail}")
+        raise RuntimeError(f"Groq API error {r.status_code}: {detail}")
+    answer = r.json().get("choices",[{}])[0].get("message",{}).get("content", "")
     if not answer.strip(): raise RuntimeError("Groq returned an empty response.")
     return answer.strip(), model
 
-def ai_call(prompt, preference="Gemini first", system=None, temperature=.2):
-    order = ["Groq","Gemini"] if preference == "Groq first" else ["Gemini","Groq"]
+
+def ai_call(prompt, preference="Automatic fallback", system=None, temperature=.2):
+    if preference == "Groq first":
+        order = ["Groq", "Gemini"]
+    else:
+        # Automatic fallback and Gemini first both prefer Gemini, then try Groq.
+        order = ["Gemini", "Groq"]
     errors=[]
     for provider in order:
         try:
-            if provider=="Gemini": ans, model=gemini_call(prompt, system or "You are GraphPilot AI.", temperature)
-            else: ans, model=groq_call(prompt, system or "You are GraphPilot AI.", temperature)
+            if provider == "Gemini": ans, model = gemini_call(prompt, system or "You are GraphPilot AI.", temperature)
+            else: ans, model = groq_call(prompt, system or "You are GraphPilot AI.", temperature)
             return ans, provider, model, errors
-        except Exception as e: errors.append(f"{provider}: {str(e)[:350]}")
-    raise RuntimeError("Both configured AI providers failed.\n" + "\n".join(errors))
+        except Exception as e:
+            errors.append(f"{provider}: {str(e)[:350]}")
+    raise RuntimeError("Both AI providers were tried, but neither returned a response.\n\n" + "\n".join(errors))
 
 def extract_file(name, raw):
     ext = name.lower().rsplit(".",1)[-1]
@@ -524,8 +613,8 @@ elif page=="Knowledge Base":
 elif page=="AI Assistant":
     st.title("AI Assistant")
     st.caption("RAG-grounded Q&A across your uploaded files and connected links.")
-    lang=st.selectbox("Response language",["English","Roman Urdu","Urdu"],key="chat_lang")
-    pref=st.selectbox("Provider strategy",["Gemini first","Groq first"],key="chat_pref")
+    lang=st.selectbox("Response language",["English","Roman Urdu","Urdu"],index=0,key="chat_lang_v2")
+    pref=st.selectbox("Provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="chat_pref_v2",help="Automatic fallback tries Gemini first and switches to Groq/Llama if Gemini fails.")
     for item in st.session_state.chat[-8:]:
         with st.chat_message("user"): st.write(item["question"])
         with st.chat_message("assistant"):
@@ -554,8 +643,8 @@ elif page=="Agentic Lab":
     st.title("Agentic AI Task Studio")
     st.caption("Delegate a goal. The planner creates a workflow, runs available tools, gathers evidence and synthesizes a report.")
     st.markdown('<div class="panel"><div class="panel-title">What makes this agentic?</div><p class="muted">Plan → Tool selection → Tool execution → Evidence collection → Synthesis → Report. This is separate from ordinary document Q&A.</p></div>',unsafe_allow_html=True)
-    lang=st.selectbox("Deliverable language",["English","Roman Urdu","Urdu"],key="agent_lang")
-    pref=st.selectbox("AI provider",["Gemini first","Groq first"],key="agent_pref")
+    lang=st.selectbox("Deliverable language",["English","Roman Urdu","Urdu"],index=0,key="agent_lang_v2")
+    pref=st.selectbox("AI provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="agent_pref_v2")
     task=st.text_area("Give GraphPilot a task",height=130,placeholder="Example: Research the current trends in Pakistan's e-commerce market, compare major growth drivers, analyze my uploaded sales CSV if available, and prepare a strategic report with sources.")
     if st.button("Plan and execute task",type="primary"):
         if not task.strip(): st.warning("Describe the task first.")
@@ -609,7 +698,7 @@ elif page=="Analytics":
             with st.spinner("Analyzing dataset..."):
                 try:
                     summary=dataset_summary(df)
-                    ans,provider,model,errs=ai_call("Analyze this dataset. Report data quality, meaningful patterns, correlations (not causation), business implications, limitations and next steps. Do not invent values.\n"+summary,"Gemini first")
+                    ans,provider,model,errs=ai_call("Analyze this dataset. Report data quality, meaningful patterns, correlations (not causation), business implications, limitations and next steps. Do not invent values.\n"+summary,"Automatic fallback")
                     st.session_state.last_report=ans; answer_card(ans); export_controls("Dataset Insights",ans,"graphpilot_dataset_insights")
                 except Exception as e: st.error(str(e))
 
@@ -640,19 +729,23 @@ elif page=="Settings":
     g=bool(get_secret("GEMINI_API_KEY")); q=bool(get_secret("GROQ_API_KEY"))
     a,b=st.columns(2)
     with a:
-        st.markdown(f'<div class="panel"><div class="panel-title">Google Gemini</div><p class="muted">Primary provider · { "Configured" if g else "Missing key" }</p><code>{get_secret("GEMINI_MODEL",GEMINI_DEFAULT_MODEL)}</code></div>',unsafe_allow_html=True)
+        st.markdown(f'<div class="panel"><div class="panel-title">Google Gemini</div><p class="muted">Primary provider · { "API key configured" if g else "API key missing" }</p><code>Model: detected from your API key</code></div>',unsafe_allow_html=True)
     with b:
-        st.markdown(f'<div class="panel"><div class="panel-title">Groq / Llama</div><p class="muted">Fallback provider · { "Configured" if q else "Missing key" }</p><code>{get_secret("GROQ_MODEL",GROQ_DEFAULT_MODEL)}</code></div>',unsafe_allow_html=True)
+        st.markdown(f'<div class="panel"><div class="panel-title">Groq / Llama</div><p class="muted">Automatic fallback provider · { "API key configured" if q else "API key missing" }</p><code>Model: detected from your API key</code></div>',unsafe_allow_html=True)
+    st.caption("Automatic fallback is enabled in the AI Assistant and Agentic Lab. If the first provider fails, GraphPilot tries the second configured provider.")
     if st.button("Test AI providers"):
-        for name,fn,ok in [("Gemini",gemini_call,g),("Groq",groq_call,q)]:
-            if not ok: st.warning(name+": key missing"); continue
+        for name,fn,ok in [("Google Gemini",gemini_call,g),("Groq / Llama",groq_call,q)]:
+            if not ok:
+                st.warning(f"{name}: API key is not configured.")
+                continue
             try:
                 ans,model=fn("Reply exactly: GraphPilot connection successful.")
-                st.success(f"{name} connected · {model}")
-            except Exception as e: st.error(f"{name}: {e}")
+                st.success(f"{name} connected successfully · {model}")
+            except Exception as e:
+                st.error(f"{name} connection failed: {str(e)[:450]}")
     st.markdown("### Streamlit Secrets")
-    st.code('GEMINI_API_KEY = "your-existing-gemini-key"\nGROQ_API_KEY = "your-existing-groq-key"\n# Optional model overrides:\nGEMINI_MODEL = "gemini-2.5-flash"\nGROQ_MODEL = "llama-3.3-70b-versatile"')
-    st.info("Aapki existing secret key names same hain. Keys ko GitHub par upload na karein. Agar aapke current secrets mein model override hai to usay preserve karein.")
+    st.code('GEMINI_API_KEY = "your-existing-gemini-key"\nGROQ_API_KEY = "your-existing-groq-key"')
+    st.info("Your existing secret names are unchanged. Keep both API keys in Streamlit Secrets; never upload API keys to GitHub. GraphPilot automatically detects models available to each key, so old model overrides are no longer required.")
     st.markdown("### Current architecture")
     st.write("- Streamlit frontend and Python application")
     st.write("- TF-IDF based lexical retrieval with source metadata and citations")
