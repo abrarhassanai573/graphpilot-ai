@@ -65,6 +65,104 @@ p,label,.stMarkdown{color:var(--text)}
 [data-testid="stMarkdownContainer"] td,[data-testid="stMarkdownContainer"] th{border:1px solid #45634D;padding:8px}
 div[data-testid="stMetric"]{background:#151D35;border:1px solid var(--line);padding:14px;border-radius:14px}
 hr{border-color:var(--line)}
+/* PETALYX-INSPIRED GRAPH PILOT PALETTE — visual theme only */
+:root{
+ --bg:#e9eee0; --panel:#ffffff; --panel2:#f7f9f1;
+ --line:#eef0ea; --muted:#59614b; --text:#121410;
+ --purple:#4d6a10; --blue:#6f9a0c;
+ --olive:#4d6a10; --green:#6f9a0c; --lime:#b4cd52; --pill:#e7efcf;
+}
+html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{
+ background:#e9eee0!important;color:#121410!important;
+ font-family:"Inter Tight",system-ui,sans-serif!important;
+}
+[data-testid="stHeader"]{background:rgba(233,238,224,.94)!important}
+[data-testid="stSidebar"]{
+ background:#f4f7ec!important;border-right:1px solid #dfe6d3!important;
+}
+[data-testid="stSidebar"] *{color:#202716!important}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] small{color:#59614b!important}
+h1,h2,h3,h4,h5,h6,p,label,li,span,strong,small{
+ color:inherit;
+}
+.block-container{color:#121410!important}
+.hero{
+ background:radial-gradient(ellipse at 88% 0%,rgba(180,205,82,.28) 0%,transparent 42%),
+ linear-gradient(120deg,#ffffff,#f4f7ec)!important;
+ border:1px solid #e2e9d8!important;
+}
+.hero h1,.panel-title{color:#202716!important}
+.hero p,.muted{color:#59614b!important}
+.panel,div[data-testid="stMetric"],.answer-card{
+ background:#ffffff!important;color:#121410!important;
+ border:1px solid #e4e9dc!important;
+ box-shadow:0 8px 24px rgba(49,68,18,.055)!important;
+}
+.panel *,.answer-card *{color:#202716!important}
+.answer-card{background:#f7f9f1!important}
+.answer-label,.eyebrow{color:#4d6a10!important}
+.pill{
+ background:#e7efcf!important;color:#2c3a10!important;
+ border:1px solid #dce8bd!important;
+}
+.stButton>button,.stFormSubmitButton>button,
+[data-testid="stDownloadButton"] button{
+ background:#4d6a10!important;color:#f3f8e4!important;
+ border:1px solid #4d6a10!important;border-radius:999px!important;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 6px rgba(60,80,10,.18)!important;
+}
+.stButton>button:hover,.stFormSubmitButton>button:hover,
+[data-testid="stDownloadButton"] button:hover{
+ background:#5a7c14!important;border-color:#5a7c14!important;color:#fff!important;
+}
+[data-testid="stAlert"],[data-testid="stAlert"]>div{
+ background:#f3f7e9!important;color:#263515!important;border:1px solid #dce8bd!important;
+}
+[data-testid="stAlert"] *{color:#263515!important}
+[data-testid="stFileUploader"],[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploaderDropzone"]>div{
+ background:#f7f9f1!important;color:#202716!important;border-color:#dce5ce!important;
+}
+[data-testid="stFileUploader"] *,[data-testid="stFileUploaderDropzone"] *{
+ color:#303b20!important;
+}
+[data-baseweb="select"]>div,.stTextInput input,.stTextArea textarea,
+[data-baseweb="input"] input{
+ background:#ffffff!important;color:#202716!important;
+ border-color:#d6dfc9!important;
+}
+.stTextInput input::placeholder,.stTextArea textarea::placeholder{
+ color:#858d78!important;opacity:1!important;
+}
+[data-baseweb="select"] *{color:#202716!important}
+[data-testid="stMetric"] label,[data-testid="stMetric"] [data-testid="stMetricLabel"]{
+ color:#59614b!important;
+}
+[data-testid="stMetric"] [data-testid="stMetricValue"]{
+ color:#4d6a10!important;
+}
+hr{border-color:#e3e9da!important}
+a{color:#4d6a10!important}
+code{background:#e7efcf!important;color:#2c3a10!important}
+.stProgress>div>div{background:#6f9a0c!important}
+
+
+/* Ensure research/chat content follows the same Petalyx palette. */
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3,
+[data-testid="stMarkdownContainer"] h4{color:#4d6a10!important}
+[data-testid="stMarkdownContainer"] h2{border-bottom:1px solid #dce8bd!important}
+[data-testid="stMarkdownContainer"] a{color:#4d6a10!important;text-decoration:underline}
+[data-testid="stMarkdownContainer"] blockquote{border-left:4px solid #6f9a0c!important;background:#f7f9f1!important;color:#263515!important}
+[data-testid="stMarkdownContainer"] th{background:#e7efcf!important;color:#2c3a10!important}
+[data-testid="stMarkdownContainer"] td,[data-testid="stMarkdownContainer"] th{border:1px solid #dce5ce!important}
+[data-testid="stChatMessage"]{background:#ffffff!important;border:1px solid #e4e9dc!important;border-radius:16px!important}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"]{color:#121410!important}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] *{color:#202716!important}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] a{color:#4d6a10!important}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -381,11 +479,11 @@ def make_pdf(title, content):
         topMargin=.78*inch, bottomMargin=.72*inch,
         title=title, author="GraphPilot AI"
     )
-    forest = colors.HexColor("#174D35")
-    mid_green = colors.HexColor("#397A55")
-    pale = colors.HexColor("#EEF4EF")
-    ink = colors.HexColor("#26332B")
-    muted = colors.HexColor("#68766D")
+    forest = colors.HexColor("#4d6a10")
+    mid_green = colors.HexColor("#6f9a0c")
+    pale = colors.HexColor("#f7f9f1")
+    ink = colors.HexColor("#121410")
+    muted = colors.HexColor("#59614b")
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="GPTitle", parent=styles["Title"], fontName="Times-Bold",
         fontSize=25, leading=30, textColor=forest, alignment=1, spaceAfter=5))
@@ -411,7 +509,7 @@ def make_pdf(title, content):
         Spacer(1, 4)
     ]
     story.append(Paragraph(
-        '<font color="#397A55">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>',
+        '<font color="#6f9a0c">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>',
         styles["GPSource"]))
     def inline_markup(value):
         links = []
@@ -422,9 +520,9 @@ def make_pdf(title, content):
         value = html.escape(value, quote=False)
         value = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', value)
         value = re.sub(r'\*(.+?)\*', r'<i>\1</i>', value)
-        value = re.sub(r'(https?://[^\s<]+)', r'<link href="\1" color="#236B45"><u>\1</u></link>', value)
+        value = re.sub(r'(https?://[^\s<]+)', r'<link href="\1" color="#4d6a10"><u>\1</u></link>', value)
         for idx, (label, url) in enumerate(links):
-            value = value.replace(f"@@GP_LINK_{idx}@@", f'<link href="{html.escape(url, quote=True)}" color="#236B45"><u>{html.escape(label)}</u></link>')
+            value = value.replace(f"@@GP_LINK_{idx}@@", f'<link href="{html.escape(url, quote=True)}" color="#4d6a10"><u>{html.escape(label)}</u></link>')
         return value
     for raw_line in (content or "").splitlines():
         line = raw_line.strip()
@@ -433,7 +531,7 @@ def make_pdf(title, content):
             continue
         if line in ("---", "***", "___"):
             story.append(Spacer(1, 5))
-            story.append(Paragraph('<font color="#397A55">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>', styles["GPSource"]))
+            story.append(Paragraph('<font color="#6f9a0c">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>', styles["GPSource"]))
             continue
         if line.startswith("# "):
             story.append(Paragraph(inline_markup(line[2:]), styles["GPHeading1"]))
@@ -715,7 +813,7 @@ EVIDENCE:
 
 # Sidebar / navigation
 with st.sidebar:
-    st.markdown('<div style="display:flex;align-items:center;gap:10px;padding:8px 0 24px"><div style="width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#795CFF,#168BFF);display:grid;place-items:center;font-size:21px">✦</div><div><b style="font:700 19px Space Grotesk">GraphPilot AI</b><div style="font-size:10px;letter-spacing:1.5px;color:#AAB7D3">AGENTIC BUSINESS INTELLIGENCE</div></div></div>',unsafe_allow_html=True)
+    st.markdown('<div style="display:flex;align-items:center;gap:10px;padding:8px 0 24px"><div style="width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#4d6a10,#6f9a0c);display:grid;place-items:center;font-size:21px">✦</div><div><b style="font:700 19px Space Grotesk">GraphPilot AI</b><div style="font-size:10px;letter-spacing:1.5px;color:#AAB7D3">AGENTIC BUSINESS INTELLIGENCE</div></div></div>',unsafe_allow_html=True)
     st.markdown('<div class="eyebrow">Workspace</div>',unsafe_allow_html=True)
     page=st.radio("Navigation",NAV,label_visibility="collapsed")
     st.markdown("---")
@@ -994,4 +1092,4 @@ elif page=="Settings":
     st.write("- Pandas, NumPy, scikit-learn analytics and baseline ML")
     st.warning("Limitations: Google Drive ingestion requires a public/shareable file link; private Drive OAuth is not included. YouTube requires available captions/transcripts. Web research depends on public search availability. Uploaded data and history are session-scoped, not persistent multi-tenant storage. The included ML model is an exploratory baseline, not validated production prediction. No app-level file-count cap is imposed, but Streamlit Cloud upload size, memory, execution time and API context limits still apply.")
 
-st.markdown("<hr><div style='display:flex;justify-content:space-between;color:#8292B4;font-size:10px'><span>GRAPHPILOT AI · AGENTIC BUSINESS INTELLIGENCE</span><span>ADVANCED STREAMLIT EDITION</span></div>",unsafe_allow_html=True)
+st.markdown("<hr><div style='display:flex;justify-content:space-between;color:#59614b;font-size:10px'><span>GRAPHPILOT AI · AGENTIC BUSINESS INTELLIGENCE</span><span>ADVANCED STREAMLIT EDITION</span></div>",unsafe_allow_html=True)
