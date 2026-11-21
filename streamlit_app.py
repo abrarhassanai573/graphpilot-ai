@@ -1,5 +1,5 @@
 
-import io, os, re, json, time, math, hashlib, html, textwrap
+import io, os, re, json, time, math, hashlib, html, textwrap, ipaddress, socket
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from typing import Any
@@ -26,9 +26,8 @@ from sklearn.metrics import r2_score, mean_squared_error, accuracy_score, classi
 st.set_page_config(page_title="GraphPilot AI | Agentic Business Intelligence", page_icon="🧭", layout="wide")
 GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
-MAX_FILE_MB = 25
-MAX_URL_CHARS = 120000
-NAV = ["Overview", "Knowledge Base", "AI Assistant", "Agentic Lab", "Analytics", "Reports", "Settings"]
+MAX_URL_CHARS = None
+NAV = ["Overview", "Knowledge Base", "Replit AI Assistant", "GraphPilot Chatbot", "Agentic Lab", "Analytics", "Reports", "Settings"]
 
 st.markdown("""
 <style>
@@ -61,7 +60,7 @@ hr{border-color:var(--line)}
 """, unsafe_allow_html=True)
 
 def init_state():
-    defaults = {"sources": {}, "chat": [], "last_answer": "", "last_report": "", "agent_runs": [],
+    defaults = {"sources": {}, "chat": [], "general_chat": [], "last_answer": "", "last_report": "", "agent_runs": [],
                 "dataset_results": {}, "provider_status": {}, "last_plan": []}
     for k,v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -229,11 +228,11 @@ def chunk_text(text, size=1100, overlap=160):
     for i in range(0,len(words),step):
         part=" ".join(words[i:i+size//7])
         if len(part)>80: chunks.append(part)
-    return chunks[:500]
+    return chunks
 
 def add_source(name, text, kind="File", url="", dataframe=None):
     digest=hashlib.sha256((name+text[:500]).encode("utf-8",errors="ignore")).hexdigest()
-    st.session_state.sources[digest]={"name":name,"text":text[:MAX_URL_CHARS],"kind":kind,"url":url,
+    st.session_state.sources[digest]={"name":name,"text":text if MAX_URL_CHARS is None else text[:MAX_URL_CHARS],"kind":kind,"url":url,
        "chunks":chunk_text(text),"dataframe":dataframe,"added":datetime.now().strftime("%Y-%m-%d %H:%M")}
     return digest
 
@@ -261,7 +260,17 @@ def retrieve(question, top_k=6):
 def safe_fetch(url):
     p=urlparse(url)
     if p.scheme not in ("http","https") or not p.netloc: raise ValueError("Please provide a valid http/https URL.")
-    if p.hostname in ("localhost","127.0.0.1") or p.hostname.endswith(".local"): raise ValueError("Local/private URLs are not allowed.")
+    host=(p.hostname or "").lower()
+    if host in ("localhost","localhost.localdomain") or host.endswith((".local",".internal")):
+        raise ValueError("Local/private URLs are blocked by GraphPilot security.")
+    try:
+        resolved=socket.getaddrinfo(host,p.port or (443 if p.scheme=="https" else 80),type=socket.SOCK_STREAM)
+        for info in resolved:
+            ip=ipaddress.ip_address(info[4][0])
+            if not ip.is_global:
+                raise ValueError("Private, loopback and reserved network destinations are blocked.")
+    except socket.gaierror:
+        pass
     headers={"User-Agent":"Mozilla/5.0 (compatible; GraphPilotAI/1.0)"}
     r=requests.get(url,headers=headers,timeout=25,allow_redirects=True)
     r.raise_for_status()
@@ -402,7 +411,7 @@ USER QUESTION: {question}"""
     ans,provider,model,errors=ai_call(prompt,preference)
     return ans,sources,provider,model,errors
 
-def agent_plan(task, language, preference, source_count):
+def agent_plan(task, language, preference, source_count, knowledge_mode="Hybrid (Knowledge Base + web)"):
     prompt=f"""You are the task planner for GraphPilot AI, an agentic business intelligence system.
 Break the user's task into 3-6 ordered executable steps. Select tools ONLY from:
 - search_web: research current public web information (query required)
@@ -411,7 +420,11 @@ Break the user's task into 3-6 ordered executable steps. Select tools ONLY from:
 - calculate: perform arithmetic from a simple expression (expression required)
 - draft_report: synthesize evidence and create the final deliverable
 Return ONLY valid JSON: {{"objective":"...","steps":[{{"tool":"search_web|search_knowledge|analyze_data|calculate|draft_report","purpose":"...","query":"...","expression":"..."}}]}}
-Use tools appropriate to the task; if no files exist, still research via web when useful. Never claim to have accessed private resources.
+Knowledge mode: {knowledge_mode}.
+- "Independent AI research": NEVER use search_knowledge and NEVER inspect uploaded documents or links. Use public web research and model reasoning only.
+- "Knowledge Base only": use search_knowledge for uploaded sources; do not use search_web.
+- "Hybrid (Knowledge Base + web)": use both uploaded sources and public web research when relevant.
+Use only tools allowed by the selected mode. Never claim to have accessed private resources.
 User task: {task}
 Uploaded sources count: {source_count}
 Language: {language_rule(language)}"""
@@ -419,14 +432,27 @@ Language: {language_rule(language)}"""
     match=re.search(r"\{.*\}",raw,re.S)
     if not match: raise ValueError("Planner did not return valid JSON. Try simplifying the task.")
     data=json.loads(match.group(0))
-    allowed={"search_web","search_knowledge","analyze_data","calculate","draft_report"}
+    allowed={"search_web","analyze_data","calculate","draft_report"}
+    if knowledge_mode in ("Knowledge Base only","Hybrid (Knowledge Base + web)"):
+        allowed.add("search_knowledge")
+    if knowledge_mode == "Knowledge Base only":
+        allowed.discard("search_web")
+    if knowledge_mode == "Independent AI research":
+        allowed.discard("search_knowledge")
+        allowed.discard("analyze_data")
     steps=[s for s in data.get("steps",[]) if s.get("tool") in allowed][:7]
-    if not steps: steps=[{"tool":"search_knowledge","purpose":"Check uploaded evidence","query":task},{"tool":"search_web","purpose":"Research public context","query":task},{"tool":"draft_report","purpose":"Synthesize findings"}]
+    if not steps:
+        steps=[]
+        if knowledge_mode in ("Knowledge Base only","Hybrid (Knowledge Base + web)"):
+            steps.append({"tool":"search_knowledge","purpose":"Retrieve relevant uploaded evidence","query":task})
+        if knowledge_mode in ("Independent AI research","Hybrid (Knowledge Base + web)"):
+            steps.append({"tool":"search_web","purpose":"Research public information independently","query":task})
+        steps.append({"tool":"draft_report","purpose":"Synthesize findings"})
     if steps[-1]["tool"]!="draft_report": steps.append({"tool":"draft_report","purpose":"Synthesize findings"})
     return data.get("objective",task),steps,prov,model
 
 
-def execute_agent(task, language, preference):
+def execute_agent(task, language, preference, knowledge_mode="Hybrid (Knowledge Base + web)"):
     """Run a real LangGraph state machine: plan -> execute tools -> synthesize."""
     try:
         from typing_extensions import TypedDict
@@ -436,6 +462,7 @@ def execute_agent(task, language, preference):
             task: str
             language: str
             preference: str
+            knowledge_mode: str
             objective: str
             steps: list
             logs: list
@@ -450,7 +477,7 @@ def execute_agent(task, language, preference):
         def plan_node(state):
             objective, steps, pp, pm = agent_plan(
                 state["task"], state["language"], state["preference"],
-                len(st.session_state.sources)
+                len(st.session_state.sources), knowledge_mode
             )
             return {"objective": objective, "steps": steps,
                     "planner_provider": pp, "planner_model": pm,
@@ -462,6 +489,12 @@ def execute_agent(task, language, preference):
                 tool = step["tool"]
                 purpose = step.get("purpose", "")
                 query = step.get("query") or state["task"]
+                if tool == "search_knowledge" and knowledge_mode == "Independent AI research":
+                    logs.append({"step": idx, "tool": tool, "status": "Blocked by mode", "detail": "Independent mode never reads uploaded sources."})
+                    continue
+                if tool == "search_web" and knowledge_mode == "Knowledge Base only":
+                    logs.append({"step": idx, "tool": tool, "status": "Blocked by mode", "detail": "Knowledge Base only mode does not use web search."})
+                    continue
                 if tool == "search_web":
                     results = web_search(query, 5)
                     textout = "\\n".join(
@@ -479,6 +512,9 @@ def execute_agent(task, language, preference):
                                  "status": "Completed" if ctx else "No matching evidence",
                                  "detail": purpose + " · " + ", ".join(src)})
                 elif tool == "analyze_data":
+                    if knowledge_mode == "Independent AI research":
+                        logs.append({"step": idx, "tool": tool, "status": "Blocked by mode", "detail": "Independent mode does not inspect uploaded datasets."})
+                        continue
                     frames = [(x["name"], x["dataframe"]) for x in st.session_state.sources.values()
                               if x.get("dataframe") is not None]
                     if frames:
@@ -514,8 +550,22 @@ def execute_agent(task, language, preference):
             prompt = f"""Complete this user task as GraphPilot AI's final analyst. You have executed a tool plan.
 Use the evidence below, distinguish sourced facts from analysis/inference, cite URLs/source names inline,
 identify gaps and limitations, and provide practical recommendations. If evidence is insufficient, say so.
-Structure as executive summary, methodology/actions performed, findings, risks/limitations, recommendations, sources.
+Use polished professional report formatting with clear numbered headings and subheadings. Include:
+1. Executive Summary
+2. Objective and Scope
+3. Methodology and Tools Used
+4. Key Findings (with evidence)
+5. RTCO Source Quality Review (Relevance, Timeliness, Credibility, Objectivity) for each important source
+6. Analysis and Implications
+7. Recommendations and Action Roadmap
+8. Risks, Limitations and Assumptions
+9. References / Sources (title and exact URL or uploaded filename)
+Distinguish source-supported facts from analysis and recommendations. Never invent citations or claim web research if search failed.
 {language_rule(state['language'])}
+RESEARCH MODE: {state.get('knowledge_mode','Hybrid (Knowledge Base + web)')}
+If mode is "Independent AI research", do not use or refer to any uploaded source.
+If mode is "Knowledge Base only", do not fill missing evidence with general model knowledge or web facts; explicitly state when the uploaded sources do not support an answer.
+If mode is "Hybrid (Knowledge Base + web)", clearly separate uploaded-source evidence from public web evidence.
 USER TASK: {state['task']}
 OBJECTIVE: {state.get('objective','')}
 EXECUTION LOG: {json.dumps(state.get('logs', []), ensure_ascii=False)}
@@ -534,7 +584,8 @@ EVIDENCE:
         workflow.add_edge("tool_executor", "report_synthesizer")
         workflow.add_edge("report_synthesizer", END)
         result = workflow.compile().invoke({
-            "task": task, "language": language, "preference": preference
+            "task": task, "language": language, "preference": preference,
+            "knowledge_mode": knowledge_mode
         })
         run = {
             "task": task, "objective": result.get("objective", task),
@@ -542,7 +593,7 @@ EVIDENCE:
             "provider": result.get("final_provider", ""),
             "model": result.get("final_model", ""),
             "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "orchestration": "LangGraph"
+            "orchestration": "LangGraph", "knowledge_mode": knowledge_mode
         }
         st.session_state.agent_runs.append(run)
         st.session_state.last_report = run["report"]
@@ -567,11 +618,11 @@ st.markdown(f'<div style="display:flex;justify-content:space-between;margin-bott
 if page=="Overview":
     st.markdown(f"""<div class="hero"><div class="eyebrow">Your intelligence workspace</div><h1>Turn complex tasks<br>into confident decisions.</h1><p>Connect documents, datasets, websites and videos. Ask grounded questions, delegate research tasks to AI agents, discover business patterns and generate decision-ready reports.</p><span class="pill">Multi-source RAG · Agentic workflows · Business analytics</span></div>""",unsafe_allow_html=True)
     cols=st.columns(4)
-    for col,label,value,sub in zip(cols,["Connected sources","Extracted characters","AI conversations","Agentic runs"],[len(docs),f"{total_chars:,}",len(st.session_state.chat),len(st.session_state.agent_runs)],["Files, links and videos","Across current session","Assistant questions","Autonomous task workflows"]):
+    for col,label,value,sub in zip(cols,["Connected sources","Extracted characters","AI conversations","Agentic runs"],[len(docs),f"{total_chars:,}",len(st.session_state.chat)+len(st.session_state.general_chat),len(st.session_state.agent_runs)],["Files, links and videos","Across current session","Assistant questions","Autonomous task workflows"]):
         with col: st.metric(label,value,sub)
     a,b=st.columns(2)
     with a:
-        st.markdown('<div class="panel"><div class="panel-title">Platform capabilities</div><p class="muted">Topic-aware retrieval · Source citations · Website and YouTube ingestion · Drive public links · Agent planner and tool execution · AI report studio · ML analytics</p></div>',unsafe_allow_html=True)
+        st.markdown('<div class="panel"><div class="panel-title">Platform capabilities</div><p class="muted">Document RAG assistant · Independent GraphPilot Chatbot · Independent/KB/Hybrid Agentic research · Source citations · Website and YouTube ingestion · Drive public links · AI report studio · ML analytics · Security Center</p></div>',unsafe_allow_html=True)
     with b:
         st.markdown('<div class="panel"><div class="panel-title">AI provider routing</div><p class="muted">Gemini primary with Groq/Llama fallback. Provider keys are read from Streamlit Secrets and never displayed.</p></div>',unsafe_allow_html=True)
     st.info("Session note: this Streamlit deployment stores uploads and task history in the active session. Refreshing or restarting may clear them; persistent multi-user database storage is not included in this free-tier build.")
@@ -579,12 +630,11 @@ if page=="Overview":
 elif page=="Knowledge Base":
     st.title("Knowledge Base")
     st.caption("Add files and public URLs. GraphPilot extracts content and makes it searchable through retrieval.")
-    st.markdown("**Upload multiple files** · PDF, DOCX, PPTX, TXT, MD, CSV, XLSX")
+    st.markdown("**Upload multiple files** · PDF, DOCX, PPTX, TXT, MD, CSV, XLSX. No app-level file-count cap; hosting memory and Streamlit's per-file upload limit still apply.")
     uploads=st.file_uploader("Choose files",type=["pdf","docx","pptx","txt","md","csv","xlsx","xls"],accept_multiple_files=True)
     if uploads:
         for f in uploads:
             raw=f.getvalue()
-            if len(raw)>MAX_FILE_MB*1024*1024: st.error(f"{f.name}: file exceeds {MAX_FILE_MB} MB."); continue
             digest=hashlib.sha256(raw).hexdigest()
             if digest in docs: continue
             try:
@@ -610,9 +660,9 @@ elif page=="Knowledge Base":
             if st.button("Remove source",key="rm_"+sid):
                 del st.session_state.sources[sid]; st.rerun()
 
-elif page=="AI Assistant":
-    st.title("AI Assistant")
-    st.caption("RAG-grounded Q&A across your uploaded files and connected links.")
+elif page=="Replit AI Assistant":
+    st.title("Replit AI Assistant · Knowledge RAG")
+    st.caption("Document-grounded assistant. Answers from your uploaded files and connected links, with source citations.")
     lang=st.selectbox("Response language",["English","Roman Urdu","Urdu"],index=0,key="chat_lang_v2")
     pref=st.selectbox("Provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="chat_pref_v2",help="Automatic fallback tries Gemini first and switches to Groq/Llama if Gemini fails.")
     for item in st.session_state.chat[-8:]:
@@ -639,19 +689,56 @@ elif page=="AI Assistant":
     if st.session_state.chat and st.button("Clear conversation history"):
         st.session_state.chat=[]; st.session_state.last_answer=""; st.rerun()
 
+elif page=="GraphPilot Chatbot":
+    st.title("GraphPilot Chatbot")
+    st.caption("General-purpose cloud AI assistant. It answers from Gemini/Groq's general knowledge and does not retrieve or read your Knowledge Base.")
+    st.info("Privacy boundary: this chatbot does not attach uploaded documents or connected links to its prompts.")
+    lang=st.selectbox("Response language",["English","Roman Urdu","Urdu"],index=0,key="general_chat_lang")
+    pref=st.selectbox("AI provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="general_chat_pref",
+        help="Automatic fallback tries Gemini first, then Groq/Llama if needed.")
+    for item in st.session_state.general_chat[-10:]:
+        with st.chat_message("user"): st.write(item["question"])
+        with st.chat_message("assistant"):
+            answer_card(item["answer"])
+            st.caption(f"{item['provider']} · {item['model']} · General AI (no RAG)")
+    with st.form("general_chat_form",clear_on_submit=True):
+        question=st.text_area("Ask GraphPilot Chatbot",placeholder="Example: Who is Imran Khan? Explain clearly and distinguish established facts from current developments.",height=110)
+        submitted=st.form_submit_button("Send message",type="primary")
+    if submitted:
+        if not question.strip():
+            st.warning("Please enter a question.")
+        else:
+            prompt=f"""You are GraphPilot Chatbot, a helpful general-purpose cloud AI assistant. This is NOT a document RAG request. Do not access or mention uploaded files or Knowledge Base. Answer from your general model knowledge; for current or uncertain facts, state limitations and do not invent live research. {language_rule(lang)} User question: {question.strip()}"""
+            with st.spinner("GraphPilot Chatbot is generating an independent answer..."):
+                try:
+                    ans,provider,model,errs=ai_call(prompt,pref,system="You are GraphPilot Chatbot, a general-purpose assistant. Never claim to have read the user's uploaded documents.")
+                    st.session_state.general_chat.append({"question":question.strip(),"answer":ans,"provider":provider,"model":model})
+                    st.rerun()
+                except Exception as e: st.error(str(e))
+    if st.session_state.general_chat:
+        latest=st.session_state.general_chat[-1]["answer"]
+        st.markdown("### Export latest chatbot answer")
+        export_controls("GraphPilot Chatbot Answer",latest,"graphpilot_chatbot_answer")
+        if st.button("Clear GraphPilot Chatbot history",key="clear_general_chat"):
+            st.session_state.general_chat=[]
+            st.rerun()
+
 elif page=="Agentic Lab":
     st.title("Agentic AI Task Studio")
     st.caption("Delegate a goal. The planner creates a workflow, runs available tools, gathers evidence and synthesizes a report.")
     st.markdown('<div class="panel"><div class="panel-title">What makes this agentic?</div><p class="muted">Plan → Tool selection → Tool execution → Evidence collection → Synthesis → Report. This is separate from ordinary document Q&A.</p></div>',unsafe_allow_html=True)
     lang=st.selectbox("Deliverable language",["English","Roman Urdu","Urdu"],index=0,key="agent_lang_v2")
     pref=st.selectbox("AI provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="agent_pref_v2")
-    task=st.text_area("Give GraphPilot a task",height=130,placeholder="Example: Research the current trends in Pakistan's e-commerce market, compare major growth drivers, analyze my uploaded sales CSV if available, and prepare a strategic report with sources.")
+    knowledge_mode=st.radio("Research mode",["Independent AI research","Knowledge Base only","Hybrid (Knowledge Base + web)"],index=0,horizontal=False,key="agent_knowledge_mode",
+        help="Independent: does not read your uploads. Knowledge Base: uses only uploaded sources. Hybrid: combines uploads with public web research.")
+    st.caption("Independent AI research = no uploaded documents or links are read. Use Knowledge Base only when the task must rely on your files. Hybrid combines both.")
+    task=st.text_area("Give GraphPilot a task",height=130,placeholder="Example: Create a 3-month AI Engineer roadmap with weekly milestones, projects, tools, and reliable sources.")
     if st.button("Plan and execute task",type="primary"):
         if not task.strip(): st.warning("Describe the task first.")
         else:
             with st.spinner("Agent planner is creating a plan and executing tools..."):
                 try:
-                    run,pp,pm,errs=execute_agent(task.strip(),lang,pref)
+                    run,pp,pm,errs=execute_agent(task.strip(),lang,pref,knowledge_mode)
                     st.success(f"Task completed. Planner: {pp} ({pm}); final synthesis: {run['provider']} ({run['model']}).")
                     st.rerun()
                 except Exception as e: st.error(str(e))
@@ -659,6 +746,7 @@ elif page=="Agentic Lab":
         run=st.session_state.agent_runs[-1]
         st.markdown("### Latest execution trace")
         st.write("**Objective:** "+run["objective"])
+        st.caption("Research mode: " + run.get("knowledge_mode","Hybrid (Knowledge Base + web)"))
         for step in run["steps"]:
             st.markdown(f"- **Step {step['step']} · {step['tool']} · {step['status']}** — {step['detail']}")
         st.markdown("### Final task report")
@@ -704,12 +792,35 @@ elif page=="Analytics":
 
 elif page=="Reports":
     st.title("Reports Studio")
-    st.caption("Create, review, revise and export decision-ready reports.")
-    if not st.session_state.last_report and not st.session_state.agent_runs and not st.session_state.chat:
+    st.caption("Create reports from your Knowledge Base, from independent AI research, or from a combination of both. Review, edit and export the result.")
+    with st.expander("Create a new report",expanded=True):
+        report_mode=st.radio("Report research mode",["Independent AI research (no RAG)","Knowledge Base only (RAG)","Hybrid (RAG + web)"],index=0,key="report_research_mode")
+        report_lang=st.selectbox("Report language",["English","Roman Urdu","Urdu"],index=0,key="report_lang")
+        report_pref=st.selectbox("AI provider strategy",["Automatic fallback","Gemini first","Groq first"],index=0,key="report_pref")
+        report_task=st.text_area("What report should GraphPilot create?",height=100,placeholder="Example: Create a professional 3-month AI Engineer roadmap with weekly learning goals, projects, milestones and references.",key="report_task")
+        if st.button("Generate new report",type="primary"):
+            if not report_task.strip():
+                st.warning("Describe the report you need.")
+            else:
+                mode_map={"Independent AI research (no RAG)":"Independent AI research","Knowledge Base only (RAG)":"Knowledge Base only","Hybrid (RAG + web)":"Hybrid (Knowledge Base + web)"}
+                with st.spinner("Planning research, collecting evidence and drafting your report..."):
+                    try:
+                        run,pp,pm,errs=execute_agent(report_task.strip(),report_lang,report_pref,mode_map[report_mode])
+                        st.session_state.pop("report_editor",None)
+                        st.success("New report generated. Review and edit it below.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+    if not st.session_state.last_report and not st.session_state.agent_runs and not st.session_state.chat and not st.session_state.general_chat:
         st.info("Generate a report in Agentic Lab, or ask questions in AI Assistant first.")
-    source_options=["Latest agentic report","Latest assistant answer"]
+    source_options=["Latest agentic report","Latest RAG assistant answer","Latest GraphPilot Chatbot answer"]
     mode=st.radio("Report source",source_options,horizontal=True)
-    default=st.session_state.last_report if mode=="Latest agentic report" else st.session_state.last_answer
+    if mode=="Latest agentic report":
+        default=st.session_state.last_report
+    elif mode=="Latest GraphPilot Chatbot answer":
+        default=st.session_state.general_chat[-1]["answer"] if st.session_state.general_chat else ""
+    else:
+        default=st.session_state.last_answer
     if mode=="Latest agentic report" and not default and st.session_state.agent_runs: default=st.session_state.agent_runs[-1]["report"]
     edited=st.text_area("Review and edit report content",value=default,height=360,key="report_editor")
     revision=st.text_input("Revision instruction",placeholder="Add an executive summary, make recommendations more actionable, or shorten the report.")
@@ -746,13 +857,28 @@ elif page=="Settings":
     st.markdown("### Streamlit Secrets")
     st.code('GEMINI_API_KEY = "your-existing-gemini-key"\nGROQ_API_KEY = "your-existing-groq-key"')
     st.info("Your existing secret names are unchanged. Keep both API keys in Streamlit Secrets; never upload API keys to GitHub. GraphPilot automatically detects models available to each key, so old model overrides are no longer required.")
+    st.markdown("### Security Center")
+    st.markdown("**Current deployment protections**")
+    st.write("- API keys are read from Streamlit Secrets and are never printed or stored in source code.")
+    st.write("- Public URL fetching blocks localhost, private and reserved IP destinations to reduce server-side request forgery (SSRF) risk.")
+    st.write("- Uploaded documents are held in the active Streamlit session; this build does not create a persistent document database.")
+    st.write("- Independent GraphPilot Chatbot and Independent Agentic Research do not attach Knowledge Base content to their prompts.")
+    st.warning("Enterprise security status: this free Streamlit deployment is a prototype, not a certified enterprise environment. It does not yet provide organization SSO, per-user roles, tenant isolation, audit logging, customer-managed encryption keys, persistent encrypted storage, DLP, or compliance certification. Do not upload confidential company documents until those controls are implemented and reviewed.")
+    if st.button("Clear all session data and uploaded sources",type="secondary"):
+        for key in ("sources","chat","general_chat","agent_runs","dataset_results","provider_status","last_plan"):
+            st.session_state[key]=[] if key in ("chat","general_chat","agent_runs","last_plan") else {}
+        st.session_state.last_answer=""
+        st.session_state.last_report=""
+        st.success("Current session data cleared.")
+        st.rerun()
     st.markdown("### Current architecture")
     st.write("- Streamlit frontend and Python application")
     st.write("- TF-IDF based lexical retrieval with source metadata and citations")
     st.write("- Gemini + Groq/Llama provider fallback")
-    st.write("- LangGraph planner/executor/synthesizer workflow")
+    st.write("- Separate document RAG assistant and independent GraphPilot Chatbot")
+    st.write("- LangGraph planner/executor/synthesizer with independent, KB-only and hybrid research modes")
     st.write("- Website/public Drive/YouTube transcript ingestion")
     st.write("- Pandas, NumPy, scikit-learn analytics and baseline ML")
-    st.warning("Limitations: Google Drive ingestion requires a public/shareable file link; private Drive OAuth is not included. YouTube requires available captions/transcripts. Web research depends on public search availability. Uploaded data and history are session-scoped, not persistent multi-tenant storage. The included ML model is an exploratory baseline, not validated production prediction.")
+    st.warning("Limitations: Google Drive ingestion requires a public/shareable file link; private Drive OAuth is not included. YouTube requires available captions/transcripts. Web research depends on public search availability. Uploaded data and history are session-scoped, not persistent multi-tenant storage. The included ML model is an exploratory baseline, not validated production prediction. No app-level file-count cap is imposed, but Streamlit Cloud upload size, memory, execution time and API context limits still apply.")
 
 st.markdown("<hr><div style='display:flex;justify-content:space-between;color:#8292B4;font-size:10px'><span>GRAPHPILOT AI · AGENTIC BUSINESS INTELLIGENCE</span><span>ADVANCED STREAMLIT EDITION</span></div>",unsafe_allow_html=True)
