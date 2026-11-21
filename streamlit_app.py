@@ -145,6 +145,13 @@ h1,h2,h3,h4,h5,h6,p,label,li,span,strong,small{
 hr{border-color:#e3e9da!important}
 a{color:#4d6a10!important}
 code{background:#e7efcf!important;color:#2c3a10!important}
+[data-testid="stCodeBlock"],[data-testid="stCodeBlock"] pre,
+[data-testid="stCodeBlock"] code{
+ background:#f7f9f1!important;color:#263515!important;
+ border:1px solid #dce5ce!important;border-radius:10px!important;
+}
+[data-testid="stCodeBlock"] pre code,
+[data-testid="stCodeBlock"] span{color:#263515!important}
 .stProgress>div>div{background:#6f9a0c!important}
 
 
@@ -321,11 +328,44 @@ def extract_file(name, raw):
     if ext in ("txt","md"):
         return raw.decode("utf-8",errors="replace"), None
     if ext == "csv":
-        df=pd.read_csv(io.BytesIO(raw))
-        return df.head(150).to_csv(index=False), df
+        # CSV files commonly arrive with UTF-8 BOM, Windows encodings, or
+        # semicolon/tab delimiters. Try robust parsers before declaring failure.
+        errors = []
+        df = None
+        for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
+            try:
+                candidate = pd.read_csv(
+                    io.BytesIO(raw), encoding=encoding, sep=None,
+                    engine="python", on_bad_lines="warn"
+                )
+                if candidate.shape[1] == 1:
+                    # If delimiter sniffing misses, try common separators.
+                    for sep in (",", ";", "\\t", "|"):
+                        test = pd.read_csv(
+                            io.BytesIO(raw), encoding=encoding, sep=sep,
+                            engine="python", on_bad_lines="warn"
+                        )
+                        if test.shape[1] > candidate.shape[1]:
+                            candidate = test
+                if len(candidate.columns) > 0:
+                    df = candidate
+                    break
+            except Exception as exc:
+                errors.append(str(exc))
+        if df is None:
+            raise ValueError("CSV could not be parsed. Save it as UTF-8 CSV and try again. " + " | ".join(errors[-2:]))
+        if df.empty and len(df.columns) == 0:
+            raise ValueError("CSV is empty or has no readable columns.")
+        preview = df.head(250).to_string(index=False)
+        text = f"CSV DATASET: {name}\\nRows: {len(df)} | Columns: {len(df.columns)}\\nColumn names: {', '.join(map(str, df.columns))}\\n\\n{preview}"
+        return text, df
     if ext in ("xlsx","xls"):
         df=pd.read_excel(io.BytesIO(raw))
-        return df.head(150).to_csv(index=False), df
+        if df.empty and len(df.columns) == 0:
+            raise ValueError("Spreadsheet is empty or has no readable columns.")
+        preview = df.head(250).to_string(index=False)
+        text = f"SPREADSHEET DATASET: {name}\\nRows: {len(df)} | Columns: {len(df.columns)}\\nColumn names: {', '.join(map(str, df.columns))}\\n\\n{preview}"
+        return text, df
     raise ValueError("Unsupported file type.")
 
 def chunk_text(text, size=1100, overlap=160):
@@ -334,7 +374,9 @@ def chunk_text(text, size=1100, overlap=160):
     step=max(1,size//7-overlap//7)
     for i in range(0,len(words),step):
         part=" ".join(words[i:i+size//7])
-        if len(part)>80: chunks.append(part)
+        if len(part)>20: chunks.append(part)
+    if not chunks and (text or "").strip():
+        chunks=[(text or "").strip()[:5000]]
     return chunks
 
 def add_source(name, text, kind="File", url="", dataframe=None):
@@ -844,11 +886,17 @@ elif page=="Knowledge Base":
     if uploads:
         for f in uploads:
             raw=f.getvalue()
-            digest=hashlib.sha256(raw).hexdigest()
-            if digest in docs: continue
+            raw_digest=hashlib.sha256(raw).hexdigest()
+            if any(x.get("raw_digest")==raw_digest for x in docs.values()):
+                st.info(f"Already connected: {f.name}")
+                continue
             try:
-                text,df=extract_file(f.name,raw); add_source(f.name,text,"File",dataframe=df)
-                st.success(f"Added {f.name}")
+                text,df=extract_file(f.name,raw)
+                sid=add_source(f.name,text,"File",dataframe=df)
+                st.session_state.sources[sid]["raw_digest"]=raw_digest
+                st.session_state.sources[sid]["row_count"]=len(df) if df is not None else None
+                st.session_state.sources[sid]["column_count"]=len(df.columns) if df is not None else None
+                st.success(f"Connected {f.name}" + (f" · {len(df):,} rows × {len(df.columns)} columns" if df is not None else ""))
             except Exception as e: st.error(f"{f.name}: {e}")
     st.markdown("### Connect public sources")
     with st.form("url_form"):
@@ -1017,23 +1065,35 @@ elif page=="Reports":
                 with st.spinner("Planning research, collecting evidence and drafting your report..."):
                     try:
                         run,pp,pm,errs=execute_agent(report_task.strip(),report_lang,report_pref,mode_map[report_mode])
-                        st.session_state.pop("report_editor",None)
+                        st.session_state.pop("report_editor_0",None)
                         st.success("New report generated. Review and edit it below.")
                         st.rerun()
                     except Exception as e:
                         st.error(str(e))
-    if not st.session_state.last_report and not st.session_state.agent_runs and not st.session_state.chat and not st.session_state.general_chat:
-        st.info("Generate a report in Agentic Lab, or ask questions in AI Assistant first.")
     source_options=["Latest agentic report","Latest RAG assistant answer","Latest GraphPilot Chatbot answer"]
-    mode=st.radio("Report source",source_options,horizontal=True)
+    mode=st.radio("Report source",source_options,horizontal=True,key="report_source_choice")
     if mode=="Latest agentic report":
         default=st.session_state.last_report
+        if not default and st.session_state.agent_runs:
+            default=st.session_state.agent_runs[-1].get("report","")
     elif mode=="Latest GraphPilot Chatbot answer":
         default=st.session_state.general_chat[-1]["answer"] if st.session_state.general_chat else ""
     else:
         default=st.session_state.last_answer
-    if mode=="Latest agentic report" and not default and st.session_state.agent_runs: default=st.session_state.agent_runs[-1]["report"]
-    edited=st.text_area("Review and edit report content",value=default,height=360,key="report_editor")
+
+    editor_key="report_editor_"+str(source_options.index(mode))
+    if editor_key not in st.session_state:
+        st.session_state[editor_key]=default or ""
+    elif default and not st.session_state[editor_key]:
+        st.session_state[editor_key]=default
+
+    if default:
+        st.markdown("### Report preview")
+        st.markdown(default)
+        st.markdown("---")
+    else:
+        st.info("No report is available for this source yet. Generate a report above, or create an answer in the selected assistant.")
+    edited=st.text_area("Review and edit report content",height=360,key=editor_key)
     revision=st.text_input("Revision instruction",placeholder="Add an executive summary, make recommendations more actionable, or shorten the report.")
     if st.button("Regenerate / improve report"):
         if not edited.strip(): st.warning("No report content to revise.")
@@ -1041,7 +1101,8 @@ elif page=="Reports":
             with st.spinner("Revising report..."):
                 try:
                     revised,provider,model,errs=ai_call(f"Revise this report according to the instruction. Preserve supported facts and source references; do not invent.\nInstruction: {revision or 'Improve structure, clarity and professionalism.'}\n\nREPORT:\n{edited}")
-                    st.session_state.last_report=revised; st.success("Revised report ready. Review it below after rerun."); st.rerun()
+                    st.session_state.last_report=revised
+                    st.success("Revised report ready. Review it in the preview above after rerun."); st.rerun()
                 except Exception as e: st.error(str(e))
     if edited.strip(): export_controls("GraphPilot Professional Report",edited,"graphpilot_professional_report")
 
